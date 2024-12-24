@@ -1,0 +1,462 @@
+package mahdi;
+
+import javax.swing.*;
+import javax.swing.event.*;
+import javax.swing.table.*;
+import java.awt.*;
+import java.awt.event.*;
+import java.io.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.PatternSyntaxException;
+
+public class StudentManagementSystem {
+    private JFrame frame;
+    private JTable table;
+    private DefaultTableModel model;
+    private ArrayList<Student> students = new ArrayList<>();
+    private JTextField searchField;
+
+    // Login credentials (initial, will be updated)
+    private String USERNAME = "admin";
+    private String PASSWORD = "password";
+
+    public StudentManagementSystem() {
+        // Load credentials from file
+        loadCredentials();
+
+        // First show login screen
+        if (!showLoginScreen()) {
+            JOptionPane.showMessageDialog(null, "نام کاربری یا رمز عبور اشتباه است.", "خطا", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        // Frame setup
+        frame = new JFrame("Student Management System");
+        frame.setSize(800, 600);
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+
+        // Menu Bar setup
+        JMenuBar menuBar = new JMenuBar();
+        JMenu fileMenu = new JMenu("فایل");
+        JMenu aboutMenu = new JMenu("درباره");
+        JMenu settingsMenu = new JMenu("تنظیمات");
+
+        // File menu items
+        JMenuItem saveItem = new JMenuItem("ذخیره داده‌ها");
+        JMenuItem loadItem = new JMenuItem("بارگذاری داده‌ها");
+        JMenuItem exportToCSVItem = new JMenuItem("ذخیره به CSV");
+        JMenuItem exportToPDFItem = new JMenuItem("ذخیره به PDF");
+
+        saveItem.addActionListener(e -> saveData());
+        loadItem.addActionListener(e -> loadData());
+        exportToCSVItem.addActionListener(e -> exportToCSV());
+        exportToPDFItem.addActionListener(e -> exportToPDF());
+
+        fileMenu.add(saveItem);
+        fileMenu.add(loadItem);
+        fileMenu.add(exportToCSVItem);
+        fileMenu.add(exportToPDFItem);
+        menuBar.add(fileMenu);
+
+        // About menu
+        JMenuItem aboutItem = new JMenuItem("درباره سازنده");
+        aboutItem.addActionListener(e -> JOptionPane.showMessageDialog(frame, 
+            "سازنده: محمد مهدی کریمی\nایمیل: mohammadmahdi@gmail.com\nنسخه: 1.0", 
+            "درباره سازنده", JOptionPane.INFORMATION_MESSAGE));
+
+        aboutMenu.add(aboutItem);
+        menuBar.add(aboutMenu);
+
+        // Settings menu for changing background and text color
+        JMenuItem changeBgColorItem = new JMenuItem("تغییر رنگ پس‌زمینه");
+        changeBgColorItem.addActionListener(e -> changeBackgroundColor());
+        settingsMenu.add(changeBgColorItem);
+
+        JMenuItem changeTextColorItem = new JMenuItem("تغییر رنگ متن");
+        changeTextColorItem.addActionListener(e -> changeTextColor());
+        settingsMenu.add(changeTextColorItem);
+
+        JMenuItem changeCredentialsItem = new JMenuItem("تغییر نام کاربری و رمز عبور");
+        changeCredentialsItem.addActionListener(e -> changeCredentials());
+        settingsMenu.add(changeCredentialsItem);
+
+        menuBar.add(settingsMenu);
+
+        frame.setJMenuBar(menuBar);
+
+        // Table setup
+        String[] columns = {"شماره دانشجویی", "نام و نام خانوادگی", "رشته تحصیلی", "معدل"};
+        model = new DefaultTableModel(columns, 0);
+        table = new JTable(model);
+
+        // Buttons
+        JButton addButton = new JButton("اضافه کردن دانشجو");
+        JButton editButton = new JButton("ویرایش دانشجو");
+        JButton deleteButton = new JButton("حذف دانشجو");
+        JButton searchButton = new JButton("جستجوی دانشجو");
+        JButton advancedSearchButton = new JButton("جستجوی پیشرفته");
+
+        // Search field for advanced search
+        searchField = new JTextField(20);
+        searchField.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                advancedSearch();
+            }
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                advancedSearch();
+            }
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                advancedSearch();
+            }
+        });
+
+        // Button panel
+        JPanel buttonPanel = new JPanel();
+        buttonPanel.add(addButton);
+        buttonPanel.add(editButton);
+        buttonPanel.add(deleteButton);
+        buttonPanel.add(searchButton);
+        buttonPanel.add(searchField);
+        buttonPanel.add(advancedSearchButton);
+
+        JScrollPane scrollPane = new JScrollPane(table);
+
+        // Add components to frame
+        frame.add(scrollPane, BorderLayout.CENTER);
+        frame.add(buttonPanel, BorderLayout.NORTH);
+
+        // Button actions
+        addButton.addActionListener(e -> addStudent());
+        editButton.addActionListener(e -> editStudent());
+        deleteButton.addActionListener(e -> deleteStudent());
+        searchButton.addActionListener(e -> showSearchDialog());
+        advancedSearchButton.addActionListener(e -> advancedSearch());
+
+        frame.setVisible(true);
+    }
+
+    private boolean showLoginScreen() {
+        JTextField usernameField = new JTextField();
+        JPasswordField passwordField = new JPasswordField();
+
+        Object[] fields = {
+            "نام کاربری:", usernameField,
+            "رمز عبور:", passwordField
+        };
+
+        int option = JOptionPane.showConfirmDialog(null, fields, "ورود به سیستم", JOptionPane.OK_CANCEL_OPTION);
+        if (option == JOptionPane.OK_OPTION) {
+            String username = usernameField.getText();
+            String password = new String(passwordField.getPassword());
+
+            // Load stored credentials and validate
+            return USERNAME.equals(username) && PASSWORD.equals(password);
+        }
+        return false;
+    }
+
+    private void loadCredentials() {
+        try (BufferedReader reader = new BufferedReader(new FileReader("credentials.txt"))) {
+            USERNAME = reader.readLine();
+            PASSWORD = reader.readLine();
+        } catch (IOException e) {
+            // If no credentials file exists, proceed with default values
+        }
+    }
+
+    private void saveCredentials() {
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter("credentials.txt"))) {
+            writer.write(USERNAME + "\n");
+            writer.write(PASSWORD + "\n");
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(frame, "خطا در ذخیره اطلاعات ورود.", "خطا", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void changeCredentials() {
+        JTextField usernameField = new JTextField(USERNAME);
+        JPasswordField passwordField = new JPasswordField(PASSWORD);
+
+        Object[] fields = {
+            "نام کاربری جدید:", usernameField,
+            "رمز عبور جدید:", passwordField
+        };
+
+        int option = JOptionPane.showConfirmDialog(frame, fields, "تغییر نام کاربری و رمز عبور", JOptionPane.OK_CANCEL_OPTION);
+        if (option == JOptionPane.OK_OPTION) {
+            USERNAME = usernameField.getText();
+            PASSWORD = new String(passwordField.getPassword());
+
+            // Save new credentials
+            saveCredentials();
+
+            JOptionPane.showMessageDialog(frame, "نام کاربری و رمز عبور با موفقیت تغییر کرد.");
+        }
+    }
+
+    private void addStudent() {
+        JTextField idField = new JTextField();
+        JTextField nameField = new JTextField();
+        JTextField majorField = new JTextField();
+        JTextField gpaField = new JTextField();
+
+        Object[] fields = {
+            "شماره دانشجویی:", idField,
+            "نام دانشجو:", nameField,
+            "رشته تحصیلی:", majorField,
+            "معدل:", gpaField
+        };
+
+        int option = JOptionPane.showConfirmDialog(frame, fields, "اضافه کردن دانشجو", JOptionPane.OK_CANCEL_OPTION);
+
+        if (option == JOptionPane.OK_OPTION) {
+            try {
+                String id = idField.getText();
+                String name = nameField.getText();
+                String major = majorField.getText();
+                double gpa = Double.parseDouble(gpaField.getText());
+
+                if (!id.matches("\\d+")) {
+                    JOptionPane.showMessageDialog(frame, "شماره دانشجویی باید فقط شامل اعداد باشد.", "خطا", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+
+                students.add(new Student(id, name, major, gpa));
+                model.addRow(new Object[]{id, name, major, gpa});
+            } catch (NumberFormatException e) {
+                JOptionPane.showMessageDialog(frame, "مقدار معدل معتبر نیست. لطفاً یک عدد معتبر وارد کنید.", "خطا", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+
+    private void editStudent() {
+        int selectedRow = table.getSelectedRow();
+        if (selectedRow == -1 || selectedRow >= students.size()) {
+            JOptionPane.showMessageDialog(frame, "لطفاً یک دانشجو را برای ویرایش انتخاب کنید.");
+            return;
+        }
+
+        Student student = students.get(selectedRow);
+
+        JTextField idField = new JTextField(student.getId());
+        JTextField nameField = new JTextField(student.getName());
+        JTextField majorField = new JTextField(student.getMajor());
+        JTextField gpaField = new JTextField(String.valueOf(student.getGpa()));
+
+        Object[] fields = {
+            "شماره دانشجویی:", idField,
+            "نام دانشجو:", nameField,
+            "رشته تحصیلی:", majorField,
+            "معدل:", gpaField
+        };
+
+        int option = JOptionPane.showConfirmDialog(frame, fields, "ویرایش دانشجو", JOptionPane.OK_CANCEL_OPTION);
+
+        if (option == JOptionPane.OK_OPTION) {
+            try {
+                String id = idField.getText();
+                String name = nameField.getText();
+                String major = majorField.getText();
+                double gpa = Double.parseDouble(gpaField.getText());
+
+                if (!id.matches("\\d+")) {
+                    JOptionPane.showMessageDialog(frame, "شماره دانشجویی باید فقط شامل اعداد باشد.", "خطا", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+
+                student.setId(id);
+                student.setName(name);
+                student.setMajor(major);
+                student.setGpa(gpa);
+
+                model.setValueAt(id, selectedRow, 0);
+                model.setValueAt(name, selectedRow, 1);
+                model.setValueAt(major, selectedRow, 2);
+                model.setValueAt(gpa, selectedRow, 3);
+            } catch (NumberFormatException e) {
+                JOptionPane.showMessageDialog(frame, "مقدار معدل معتبر نیست. لطفاً یک عدد معتبر وارد کنید.", "خطا", JOptionPane.ERROR_MESSAGE);
+            }
+        }
+    }
+
+    private void deleteStudent() {
+        int selectedRow = table.getSelectedRow();
+        if (selectedRow == -1 || selectedRow >= students.size()) {
+            JOptionPane.showMessageDialog(frame, "لطفاً یک دانشجو را برای حذف انتخاب کنید.");
+            return;
+        }
+
+        int confirm = JOptionPane.showConfirmDialog(frame, "آیا مطمئن هستید که می‌خواهید این دانشجو را حذف کنید؟", "تأیید حذف", JOptionPane.YES_NO_OPTION);
+
+        if (confirm == JOptionPane.YES_OPTION) {
+            students.remove(selectedRow);
+            model.removeRow(selectedRow);
+        }
+    }
+
+    private void showSearchDialog() {
+        String query = JOptionPane.showInputDialog(frame, "جستجو بر اساس شماره دانشجویی یا نام:");
+        if (query != null && !query.trim().isEmpty()) {
+            searchStudent(query.trim());
+        }
+    }
+
+    private void searchStudent(String query) {
+        for (int i = 0; i < model.getRowCount(); i++) {
+            String id = (String) model.getValueAt(i, 0);
+            String name = (String) model.getValueAt(i, 1);
+            if (id.contains(query) || name.contains(query)) {
+                table.setRowSelectionInterval(i, i);
+                return;
+            }
+        }
+        JOptionPane.showMessageDialog(frame, "دانشجویی با این مشخصات یافت نشد.", "نتیجه جستجو", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private void advancedSearch() {
+        String searchText = searchField.getText().toLowerCase();
+        for (int i = 0; i < model.getRowCount(); i++) {
+            String name = (String) model.getValueAt(i, 1);
+            if (name.toLowerCase().contains(searchText)) {
+                table.setRowSelectionInterval(i, i);
+                return;
+            }
+        }
+        table.clearSelection();
+    }
+
+    private void changeBackgroundColor() {
+        Color newColor = JColorChooser.showDialog(frame, "انتخاب رنگ پس‌زمینه", frame.getContentPane().getBackground());
+        if (newColor != null) {
+            // تغییر رنگ پس‌زمینه پنجره اصلی
+            frame.getContentPane().setBackground(newColor);
+
+            // تغییر رنگ پس‌زمینه کامپوننت‌های دیگر
+            for (Component component : frame.getContentPane().getComponents()) {
+                if (component instanceof JPanel) {
+                    component.setBackground(newColor);
+                } else if (component instanceof JScrollPane) {
+                    ((JScrollPane) component).getViewport().setBackground(newColor);
+                } else if (component instanceof JTable) {
+                    ((JTable) component).setBackground(newColor);
+                } else {
+                    component.setBackground(newColor);
+                }
+            }
+        }
+    }
+
+    private void changeTextColor() {
+        Color newColor = JColorChooser.showDialog(frame, "انتخاب رنگ متن", table.getForeground());
+        if (newColor != null) {
+            table.setForeground(newColor);
+        }
+    }
+
+    private void saveData() {
+        // Save student data to file
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter("students.txt"))) {
+            for (Student student : students) {
+                writer.write(student.getId() + "," + student.getName() + "," + student.getMajor() + "," + student.getGpa());
+                writer.newLine();
+            }
+            JOptionPane.showMessageDialog(frame, "داده‌ها با موفقیت ذخیره شد.", "ذخیره سازی", JOptionPane.INFORMATION_MESSAGE);
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(frame, "خطا در ذخیره داده‌ها.", "خطا", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void loadData() {
+        // Load student data from file
+        try (BufferedReader reader = new BufferedReader(new FileReader("students.txt"))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String[] parts = line.split(",");
+                if (parts.length == 4) {
+                    String id = parts[0];
+                    String name = parts[1];
+                    String major = parts[2];
+                    double gpa = Double.parseDouble(parts[3]);
+                    students.add(new Student(id, name, major, gpa));
+                    model.addRow(new Object[]{id, name, major, gpa});
+                }
+            }
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(frame, "خطا در بارگذاری داده‌ها.", "خطا", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void exportToCSV() {
+        // Export students data to CSV file
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter("students.csv"))) {
+            writer.write("شماره دانشجویی,نام دانشجو,رشته تحصیلی,معدل");
+            writer.newLine();
+            for (Student student : students) {
+                writer.write(student.getId() + "," + student.getName() + "," + student.getMajor() + "," + student.getGpa());
+                writer.newLine();
+            }
+            JOptionPane.showMessageDialog(frame, "داده‌ها به CSV صادر شد.", "صادرات", JOptionPane.INFORMATION_MESSAGE);
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(frame, "خطا در صادر کردن داده‌ها.", "خطا", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void exportToPDF() {
+        // Export students data to PDF (you can implement this using libraries like iText)
+        JOptionPane.showMessageDialog(frame, "امکان صادرات به PDF فعلاً وجود ندارد.", "خطا", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    public static void main(String[] args) {
+        new StudentManagementSystem();
+    }
+
+    class Student {
+        private String id;
+        private String name;
+        private String major;
+        private double gpa;
+
+        public Student(String id, String name, String major, double gpa) {
+            this.id = id;
+            this.name = name;
+            this.major = major;
+            this.gpa = gpa;
+        }
+
+        public String getId() {
+            return id;
+        }
+
+        public void setId(String id) {
+            this.id = id;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public String getMajor() {
+            return major;
+        }
+
+        public void setMajor(String major) {
+            this.major = major;
+        }
+
+        public double getGpa() {
+            return gpa;
+        }
+
+        public void setGpa(double gpa) {
+            this.gpa = gpa;
+        }
+    }
+}
